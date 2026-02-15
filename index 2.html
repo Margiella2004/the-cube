@@ -1,0 +1,926 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Babylon.js Playground</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+
+  <!-- Babylon globals (kept so window.BABYLON is available if your app expects it) -->
+  <script src="https://assets.babylonjs.com/generated/Assets.js"></script>
+  <script src="https://cdn.babylonjs.com/recast.js"></script>
+  <script src="https://cdn.babylonjs.com/ammo.js"></script>
+  <script src="https://cdn.babylonjs.com/havok/HavokPhysics_umd.js"></script>
+  <script src="https://cdn.babylonjs.com/cannon.js"></script>
+  <script src="https://cdn.babylonjs.com/Oimo.js"></script>
+  <script src="https://cdn.babylonjs.com/earcut.min.js"></script>
+  <script src="https://cdn.babylonjs.com/babylon.js"></script>
+  <script src="https://cdn.babylonjs.com/materialsLibrary/babylonjs.materials.min.js"></script>
+  <script src="https://cdn.babylonjs.com/proceduralTexturesLibrary/babylonjs.proceduralTextures.min.js"></script>
+  <script src="https://cdn.babylonjs.com/postProcessesLibrary/babylonjs.postProcess.min.js"></script>
+  <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.js"></script>
+  <script src="https://cdn.babylonjs.com/serializers/babylonjs.serializers.min.js"></script>
+  <script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
+  <script src="https://cdn.babylonjs.com/addons/babylonjs.addons.min.js"></script>
+  <script src="https://cdn.babylonjs.com/inspector/babylon.inspector.bundle.js"></script>
+
+  <style>
+    html,body,#renderCanvas{width:100%;height:100%;margin:0;padding:0;overflow:hidden;background:#000}
+  </style>
+</head>
+<body>
+  <canvas id="renderCanvas"></canvas>
+
+  <!-- Stored as plain text so it’s easy to edit, but still imported as an ES module via a Blob URL. -->
+  <script type="text/plain" id="scene-code">
+var createScene = function (engine, canvas) {
+    var scene = new BABYLON.Scene(engine);
+
+    // Use the actual Babylon Scene clear color (scene.background is not a Scene API).
+    // Portfolio background (from LOGO_LIGHTING_SETUP.md): nearly-black for high contrast.
+    scene.clearColor = BABYLON.Color4.FromColor3(BABYLON.Color3.FromHexString("#050505"), 1);
+
+    var camera = new BABYLON.FreeCamera("camera1", new BABYLON.Vector3(0, 5, -10), scene);
+    camera.setTarget(BABYLON.Vector3.Zero());
+
+    var currentlyExpandedCube = null; // Track currently expanded cube
+    var previouslyClickedCube = null; // Track previously clicked cube
+    var currentlyClickedFace = null;  // Track currently clicked face
+    var previouslyClickedFace=null;
+
+    var timer;
+    var timerDuration = 30000; //5 minutes in milliseconds. 30 seconds for testing.
+    var timerActive = false;
+
+    //Alpha,Beta,Radius variables-------
+    var s1Alpha=Math.PI / -2.7;
+    var s1Beta=1.5628;
+    var s1Radius;
+
+    var s2Alpha=Math.PI/-1.1;
+    var s2Beta= 1.5096;
+    var s2Radius;
+
+    var s3Alpha =2 * Math.PI / 3.2;
+    var s3Beta=1.5352;
+    var s3Radius;
+
+    var s4Alpha=Math.PI / 7;
+    var s4Beta =  1.5638;
+    var s4Radius;
+
+    var stAlpha=(1.5 * Math.PI)+.3;
+    var stBeta= .3;
+    var stRadius;
+
+    var sbAlpha=(1.5 * Math.PI)-.2;
+    var sbBeta=Math.PI-0.5;
+    var sbRadius;
+
+
+    BABYLON.SceneLoader.ImportMesh("", "https://raw.githubusercontent.com/rameshjhtpsus/wow/main/", "Rubix_cube_prototype_pastel.glb", scene, function (meshes) {
+        scene.createDefaultCameraOrLight(true, true, true);
+        var camera = scene.activeCamera;
+        scene.stopAllAnimations();
+
+        function setupLogoStyleLighting() {
+            // --- Lighting adapted from LOGO_LIGHTING_SETUP.md (Three.js) to Babylon.js ---
+            // Disable auto-generated lights so the look matches the intended setup.
+            scene.lights.forEach(function (l) {
+                if (!l || !l.name) return;
+                var n = l.name.toLowerCase();
+                if (n.includes("default")) l.intensity = 0;
+            });
+
+            // Base illumination (ambientLight intensity 0.4) => HemisphericLight.
+            var ambient = new BABYLON.HemisphericLight("portfolioAmbient", new BABYLON.Vector3(0, 1, 0), scene);
+            ambient.intensity = 0.4;
+            // Cool ground bounce similar to the markdown's cool environment lightformer.
+            ambient.groundColor = BABYLON.Color3.FromHexString("#95A3B6");
+
+            // Warm key light: directionalLight color #ff6400, intensity 2.4, position [3,4,2].
+            var keyLight = new BABYLON.DirectionalLight("portfolioKey", new BABYLON.Vector3(-3, -4, -2), scene);
+            keyLight.position = new BABYLON.Vector3(3, 4, 2);
+            keyLight.diffuse = BABYLON.Color3.FromHexString("#ff6400");
+            keyLight.specular = BABYLON.Color3.FromHexString("#ff6400");
+            keyLight.intensity = 2.4;
+
+            // Cool/neutral fill: spotLight color #ffffff, intensity 1, angle 0.45, position [-3,3,2].
+            var fillLight = new BABYLON.SpotLight(
+                "portfolioFill",
+                new BABYLON.Vector3(-3, 3, 2),
+                new BABYLON.Vector3(3, -3, -2),
+                0.45,
+                2,
+                scene
+            );
+            fillLight.diffuse = BABYLON.Color3.FromHexString("#ffffff");
+            fillLight.specular = BABYLON.Color3.FromHexString("#ffffff");
+            fillLight.intensity = 1.0;
+
+            // Optional: image-based lighting for PBR reflections (closest match to "Environment/Lightformers").
+            // If you want this to work offline, download an .env and set this URL to a local file.
+            if (!scene.environmentTexture) {
+                try {
+                    scene.environmentTexture = BABYLON.CubeTexture.CreateFromPrefilteredData(
+                        "https://playground.babylonjs.com/textures/environment.env",
+                        scene
+                    );
+                    scene.environmentIntensity = 0.8;
+                } catch (e) {
+                    console.warn("Environment texture failed to load:", e);
+                }
+            }
+
+            // Contact shadows approximation:
+            // Use a shadow-only ground plane and a blurred shadow map from the key light.
+            var boundsSource = scene.getMeshByName("Center") || (meshes && meshes[0]) || null;
+            var groundY = -0.85;
+            var groundSize = 40;
+            var targetPoint = BABYLON.Vector3.Zero();
+            if (boundsSource && typeof boundsSource.getHierarchyBoundingVectors === "function") {
+                var hv = boundsSource.getHierarchyBoundingVectors(true);
+                groundY = hv.min.y - 0.02;
+                var spanX = Math.max(1, hv.max.x - hv.min.x);
+                var spanZ = Math.max(1, hv.max.z - hv.min.z);
+                groundSize = Math.max(spanX, spanZ) * 6;
+                targetPoint = hv.min.add(hv.max).scale(0.5);
+            }
+
+            // Aim key/fill at the model center.
+            keyLight.direction = targetPoint.subtract(keyLight.position).normalize();
+            fillLight.direction = targetPoint.subtract(fillLight.position).normalize();
+
+            var shadowGround = scene.getMeshByName("portfolioShadowGround");
+            if (!shadowGround) {
+                shadowGround = BABYLON.MeshBuilder.CreateGround(
+                    "portfolioShadowGround",
+                    { width: groundSize, height: groundSize },
+                    scene
+                );
+            }
+            shadowGround.position.y = groundY;
+            shadowGround.receiveShadows = true;
+
+            if (BABYLON.ShadowOnlyMaterial) {
+                var shadowOnly = new BABYLON.ShadowOnlyMaterial("portfolioShadowOnly", scene);
+                shadowOnly.alpha = 0.4; // matches ContactShadows opacity 0.4
+                shadowGround.material = shadowOnly;
+            }
+
+            var shadowGen = new BABYLON.ShadowGenerator(2048, keyLight);
+            shadowGen.useBlurExponentialShadowMap = true;
+            shadowGen.blurKernel = 32;
+            shadowGen.bias = 0.0003;
+            shadowGen.normalBias = 0.02;
+
+            // Add imported meshes as casters (recursively) and ensure they receive shadows too.
+            meshes.forEach(function (m) {
+                if (!m) return;
+                try { shadowGen.addShadowCaster(m, true); } catch {}
+            });
+
+            return { ambient: ambient, keyLight: keyLight, fillLight: fillLight, shadowGen: shadowGen, ground: shadowGround };
+        }
+
+        function replaceBlackPBRMaterialOnly(cubeNames) {
+            // Replace ONLY the single "black" PBR material (not the colored face materials).
+            // Strategy:
+            // 1) Collect all materials used by face meshes (children of cubeName meshes).
+            // 2) Among remaining PBR materials, pick the best "black" candidate by name/darkness.
+            // 3) Clone it, tweak PBR properties, then re-assign only meshes using the original.
+
+            var faceMaterialIds = new Set();
+            if (Array.isArray(cubeNames)) {
+                cubeNames.forEach(function (cubeName) {
+                    var cube = scene.getMeshByName(cubeName);
+                    if (!cube) return;
+                    cube.getChildMeshes().forEach(function (face) {
+                        var mat = face && face.material;
+                        if (mat && typeof mat.uniqueId === "number") faceMaterialIds.add(mat.uniqueId);
+                    });
+                });
+            }
+
+            var pbrMats = scene.materials.filter(function (m) {
+                if (!m) return false;
+                if (faceMaterialIds.has(m.uniqueId)) return false;
+                // glTF materials are typically PBRMaterial.
+                return BABYLON.PBRMaterial && m instanceof BABYLON.PBRMaterial;
+            });
+
+            if (pbrMats.length === 0) return;
+
+            function materialDarknessScore(mat) {
+                // Lower score = darker / more likely the black body material.
+                var score = 1;
+                var name = (mat.name || "").toLowerCase();
+                if (name.includes("black") || name.includes("blk")) score -= 0.6;
+
+                var c = mat.albedoColor || mat.baseColor;
+                if (c && typeof c.r === "number") {
+                    var luma = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+                    score += luma;
+                }
+                return score;
+            }
+
+            pbrMats.sort(function (a, b) { return materialDarknessScore(a) - materialDarknessScore(b); });
+            var blackCandidate = pbrMats[0];
+
+            // Clone so we only affect meshes still using the shared "body" material.
+            var replacement = typeof blackCandidate.clone === "function"
+                ? blackCandidate.clone((blackCandidate.name || "black") + "_portfolio")
+                : null;
+            if (!replacement) return;
+
+            // Material look inspired by the markdown's logo material notes:
+            // metalness ~0.55, roughness ~0.2 for a polished, portfolio-friendly finish.
+            replacement.albedoColor = BABYLON.Color3.FromHexString("#050505");
+            replacement.metallic = 0.55;
+            replacement.roughness = 0.2;
+            replacement.alpha = 1.0;
+            replacement.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_OPAQUE;
+            replacement.useRadianceOverAlpha = false;
+            replacement.useSpecularOverAlpha = false;
+            replacement.needDepthPrePass = false;
+
+            // Re-assign only the meshes that were using the original candidate.
+            scene.meshes.forEach(function (mesh) {
+                if (mesh && mesh.material === blackCandidate) {
+                    mesh.material = replacement;
+                }
+            });
+
+            console.log("Replaced black PBR material:", blackCandidate.name, "=>", replacement.name);
+        }
+
+        setupLogoStyleLighting();
+
+        function animateCenterCube(centerCube) {
+            var framerate = 40;
+            var originalPosition = new BABYLON.Vector3(0.055, 3.046, 0.05);
+            var originalRotation = new BABYLON.Vector3(BABYLON.Tools.ToRadians(88.27), BABYLON.Tools.ToRadians(576.34), BABYLON.Tools.ToRadians(125.93));
+
+            // Start cube off-screen by increasing x position
+            centerCube.position = new BABYLON.Vector3(originalPosition.x + 150, originalPosition.y, originalPosition.z);
+            var inter=new BABYLON.Vector3(originalPosition.x, originalPosition.y, originalPosition.z);
+
+            // Set cube rotation
+            centerCube.rotation = new BABYLON.Vector3(originalRotation.x, originalRotation.y, originalRotation.z);
+
+            // Create position animation
+            var positionAnimation = new BABYLON.Animation("positionAnimation", "position.x", framerate, BABYLON.Animation.ANIMATIONTYPE_FLOAT, BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT);
+
+            var positionKeys = [];
+            positionKeys.push({ frame: 0, value: centerCube.position.x });
+            positionKeys.push({ frame: 70, value: inter.x }); // Move to original position
+            positionKeys.push({ frame: 170, value: originalPosition.x }); // Move to original position
+
+            positionAnimation.setKeys(positionKeys);
+
+            // Create rotation animation for Y axis
+            var rotationAnimationY = new BABYLON.Animation("rotationAnimationY", "rotation.y", framerate, BABYLON.Animation.ANIMATIONTYPE_FLOAT, BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT);
+
+            var rotationKeysY = [];
+            rotationKeysY.push({ frame: 0, value: originalRotation.y });
+            rotationKeysY.push({ frame: 140, value: originalRotation.y + BABYLON.Tools.ToRadians(720) }); // Rotate 360 degrees
+
+            rotationAnimationY.setKeys(rotationKeysY);
+
+            // Create easing functions
+            var backEase = new BABYLON.BackEase(0.36);
+            backEase.setEasingMode(BABYLON.EasingFunction.EASINGMODE_EASEOUT);
+
+            var easeOut = new BABYLON.CubicEase();
+            easeOut.setEasingMode(BABYLON.EasingFunction.EASINGMODE_EASEOUT);
+
+            positionAnimation.setEasingFunction(backEase);
+            rotationAnimationY.setEasingFunction(easeOut);
+
+            // Apply animations to centerCube
+            centerCube.animations = [];
+            centerCube.animations.push(positionAnimation);
+            centerCube.animations.push(rotationAnimationY);
+
+            // Start animation
+            scene.beginAnimation(centerCube, 0, 170, false);
+        }
+
+        var centerCube = scene.getMeshByName("Center");
+        centerCube.position.x = 600;
+
+        // Create a fullscreen UI
+        var gui = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("myUI");
+
+        // Create a button
+        var button = BABYLON.GUI.Button.CreateSimpleButton("button", "Launch Experience");
+        button.top = "0px";
+        button.left = "0px";
+        button.width = ".225 vw"; // Button width
+        button.height = ".07 vw"; // Button height
+        button.cornerRadius = 40;
+        button.thickness = 4;
+        button.children[0].color = "white"; // Text color
+        button.children[0].fontSize = 36;
+        button.color = "lightyellow"; // Border color
+        button.background = "grey"; // Background color
+
+        // Variable to track click state
+        var clicks = 0;
+
+        // Add click event handler
+        button.onPointerClickObservable.add(function () {
+            clicks++;
+
+            // Toggle button background color
+            if (clicks % 2 == 0) {
+                button.background = "#EB4D4B"; // Red background on even clicks
+            } else {
+                button.background = "#007900"; // Green background on odd clicks
+
+                // Start cube animation
+                animateCenterCube(centerCube);
+
+                // Remove the button after click
+                gui.removeControl(button);
+
+                // Enable auto-rotation on the camera
+                camera.useAutoRotationBehavior = true;
+                camera.autoRotationBehavior.idleRotationSpeed = 0.09;
+                camera.autoRotationBehavior.idleRotationWaitTime = 0;
+            }
+        });
+
+        // Add button to the UI
+        gui.addControl(button);
+
+        // Set lighting and camera configuration (guard against missing default light).
+        var defaultLight = scene.getLightByName("default light");
+        if (defaultLight && defaultLight.groundColor) {
+            defaultLight.groundColor = new BABYLON.Color3(1, 1, 1);
+        }
+
+        // Ensure camera is ArcRotateCamera for orbit behavior
+        if (camera instanceof BABYLON.ArcRotateCamera) {
+            camera.lowerRadiusLimit = 20; // Disable zoom in
+            camera.upperRadiusLimit = 20; // Disable zoom out
+            camera.alpha = 6.3;
+            camera.beta=1.56;
+            camera.inputs.attached.pointers.buttons = [0, 1];
+            camera.panningSensibility = 0; // Disable panning
+
+            // Limit beta values for vertical camera movement
+            camera.upperBetaLimit = 2.64; // Maximum vertical angle
+            camera.lowerBetaLimit = 0.5;  // Minimum vertical angle
+            camera.inertia = 0.94;        // Inertia for smoother movement
+        }
+
+        // Variable to track total rotations around the alpha axis
+        var totalAlphaRotations = 0;
+
+        // Helper function to normalize an angle to 0 to 2*pi range
+        function normalizeAngle(angle) {
+            while (angle < 0) {
+                angle += 2 * Math.PI;
+            }
+            while (angle >= 2 * Math.PI) {
+                angle -= 2 * Math.PI;
+            }
+            return angle;
+        }
+
+        // Helper function to calculate the shortest path to the target alpha
+        function calculateTargetAlpha(currentAlpha, targetAlpha) {
+            var normalizedTargetAlpha = normalizeAngle(targetAlpha);
+            var deltaAlpha = normalizedTargetAlpha - normalizeAngle(currentAlpha);
+
+            // Ensure the rotation is within the shortest path
+            if (deltaAlpha > Math.PI) {
+                deltaAlpha -= 2 * Math.PI;
+            } else if (deltaAlpha < -Math.PI) {
+                deltaAlpha += 2 * Math.PI;
+            }
+
+            return currentAlpha + deltaAlpha;
+        }
+
+        function startTimer() {
+            if (!timerActive) {
+                console.log("Timer started.");
+                timerActive = true;
+                timer = setTimeout(function () {
+                    resetScene(); // Call reset function when timer finishes
+                    console.log("reseted Timer");
+                }, timerDuration);
+            } else {
+                console.log("Timer is already running.");
+            }
+        }
+
+        function resetScene() {
+            animateCamera(5.3,1.2,18);
+            camera.autoRotationBehavior.idleRotationSpeed = 0.05;
+            resetAllCubes(cubeNames,scene);
+            resetTimer(); // Reset the timer after reset
+        }
+
+        function resetTimer() {
+            if (timerActive) {
+                console.log("Timer reset.");
+                clearTimeout(timer);
+                timerActive = false;
+            } else {
+                console.log("Timer is not active.");
+            }
+        }
+
+        // Function to animate camera smoothly to new position
+        function animateCamera(alphaTarget, betaTarget, radiusTarget, onComplete) {
+            var framerate = 60;
+            var alphaStart = camera.alpha;
+            var alphaEnd = calculateTargetAlpha(camera.alpha, alphaTarget); // Calculate target alpha considering shortest rotation
+
+            camera.detachControl(canvas);
+
+            // Create animation for alpha
+            var alphaAnimation = new BABYLON.Animation("alphaAnimation", "alpha", framerate, BABYLON.Animation.ANIMATIONTYPE_FLOAT, BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT);
+            var alphaKeys = [];
+            alphaKeys.push({ frame: 0, value: camera.alpha });
+            alphaKeys.push({ frame: 60, value: alphaEnd });
+            alphaAnimation.setKeys(alphaKeys);
+
+            // Create animation for beta
+            var betaAnimation = new BABYLON.Animation("betaAnimation", "beta", framerate, BABYLON.Animation.ANIMATIONTYPE_FLOAT, BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT);
+            var betaKeys = [];
+            betaKeys.push({ frame: 0, value: camera.beta });
+            betaKeys.push({ frame: 60, value: betaTarget });
+            betaAnimation.setKeys(betaKeys);
+
+            // Create animation for radius
+            var radiusAnimation = new BABYLON.Animation("radiusAnimation", "radius", framerate, BABYLON.Animation.ANIMATIONTYPE_FLOAT, BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT);
+            var radiusKeys = [];
+            radiusKeys.push({ frame: 0, value: camera.radius });
+            radiusKeys.push({ frame: 60, value: radiusTarget });
+            radiusAnimation.setKeys(radiusKeys);
+
+            // Add easing function
+            var easingFunction = new BABYLON.CubicEase();
+            easingFunction.setEasingMode(BABYLON.EasingFunction.EASINGMODE_EASEINOUT);
+
+            alphaAnimation.setEasingFunction(easingFunction);
+            betaAnimation.setEasingFunction(easingFunction);
+            radiusAnimation.setEasingFunction(easingFunction);
+
+            // Start animations
+            scene.beginDirectAnimation(camera, [alphaAnimation, betaAnimation, radiusAnimation], 0, 60, false, 1, onComplete);
+            camera.attachControl(canvas, true);
+        }
+
+        let cubeNames = [
+            "btm_block_1", "btm_block_2", "btm_block_3", "btm_block_4", "btm_block_5", "btm_block_6", "btm_block_7", "btm_block_8", "btm_block_9",
+            "mid_block_1", "mid_block_2", "mid_block_3", "mid_block_4", "mid_block_5", "mid_block_6", "mid_block_7", "mid_block_8", "mid_block_9",
+            "top_block_1", "top_block_2", "top_block_3", "top_block_4", "top_block_5", "top_block_6", "top_block_7", "top_block_8", "top_block_9"
+        ];
+
+        function findMaterialsUsedOnAllCubes(cubeNames) {
+            // Find materials that appear somewhere in the hierarchy of EVERY cube block mesh.
+            // This is the most reliable way to identify the shared "body" material in a glTF Rubik-style asset.
+            var cubeMeshes = [];
+            cubeNames.forEach(function (cubeName) {
+                var cube = scene.getMeshByName(cubeName);
+                if (cube) cubeMeshes.push(cube);
+            });
+
+            if (cubeMeshes.length === 0) {
+                console.warn("No cube meshes found from cubeNames; cannot compute common materials.");
+                return [];
+            }
+
+            function collectMaterialIds(root) {
+                var ids = new Set();
+                var meshesToScan = [root].concat(root.getChildMeshes());
+                meshesToScan.forEach(function (m) {
+                    var mat = m && m.material;
+                    if (!mat) return;
+                    if (Array.isArray(mat)) {
+                        mat.forEach(function (mm) { if (mm && typeof mm.uniqueId === "number") ids.add(mm.uniqueId); });
+                    } else if (typeof mat.uniqueId === "number") {
+                        ids.add(mat.uniqueId);
+                    }
+                });
+                return ids;
+            }
+
+            var intersection = collectMaterialIds(cubeMeshes[0]);
+            for (var i = 1; i < cubeMeshes.length; i++) {
+                var ids = collectMaterialIds(cubeMeshes[i]);
+                intersection.forEach(function (id) {
+                    if (!ids.has(id)) intersection.delete(id);
+                });
+            }
+
+            var commonMaterials = [];
+            intersection.forEach(function (id) {
+                var mat = scene.materials.find(function (m) { return m && m.uniqueId === id; });
+                if (mat) commonMaterials.push(mat);
+            });
+
+            // Stable ordering for logs.
+            commonMaterials.sort(function (a, b) { return (a.name || "").localeCompare(b.name || ""); });
+
+            console.log("[GLB] Cubes found:", cubeMeshes.length + "/" + cubeNames.length);
+            console.log("[GLB] Materials used on ALL cubes:", commonMaterials.map(function (m) {
+                var type = (m.getClassName && m.getClassName()) || (m.constructor && m.constructor.name) || "Material";
+                return (m.name || "(unnamed)") + " :: " + type + " (uniqueId=" + m.uniqueId + ")";
+            }));
+
+            // Expose for easy copy/paste in the console.
+            try {
+                window.__commonCubeMaterials = commonMaterials;
+                window.__commonCubeMaterialNames = commonMaterials.map(function (m) { return m.name; });
+            } catch {}
+
+            return commonMaterials;
+        }
+
+        function logInteraction(event) {
+            if (currentlyClickedFace === "stop_block_5") {
+                interactionOccurred = false;
+                return;
+            } else {
+                interactionOccurred = true;
+
+                camera.autoRotationBehavior.idleRotationSpeed = 0;
+                resetTimer();
+                startTimer();
+
+                console.log("User interacted with the scene: ", event);
+            };
+        }
+
+        // Handle cube click interaction
+        let isAnimatingUp = false;
+        let isAnimatingDown = false;
+        let lastTapTime = 0;
+        let doubleTapDetected = false;
+        var activePointers = new Map();
+
+        // Flag to indicate dragging
+        var onDragIndicator = false;
+
+        // Pointer observable for tracking dragging
+        scene.onPointerObservable.add(function (pointerInfo) {
+            switch (pointerInfo.type) {
+                case BABYLON.PointerEventTypes.POINTERDOWN:
+                    activePointers.set(pointerInfo.event.pointerId, {
+                        x: pointerInfo.event.clientX,
+                        y: pointerInfo.event.clientY
+                    });
+                    break;
+                case BABYLON.PointerEventTypes.POINTERUP:
+                    activePointers.delete(pointerInfo.event.pointerId);
+                    if (activePointers.size === 0) {
+                        onDragIndicator = false;
+                    }
+                    break;
+                case BABYLON.PointerEventTypes.POINTERMOVE:
+                    if (activePointers.has(pointerInfo.event.pointerId)) {
+                        var startPos = activePointers.get(pointerInfo.event.pointerId);
+                        var deltaX = pointerInfo.event.clientX - startPos.x;
+                        var deltaY = pointerInfo.event.clientY - startPos.y;
+
+                        if (deltaX !== 0 || deltaY !== 0) {
+                            onDragIndicator = true;
+                        }
+
+                        // Update camera angles for dragging
+                        camera.alpha -= deltaX * 0.001;
+                        camera.beta -= deltaY * 0.001;
+
+                        // Update start position for current pointer
+                        activePointers.set(pointerInfo.event.pointerId, {
+                            x: pointerInfo.event.clientX,
+                            y: pointerInfo.event.clientY
+                        });
+                    }
+                    break;
+            }
+        });
+
+        // Set camera inertia
+        camera.inertia = 0.94;
+
+        // Analyze GLB BEFORE we clone face materials for fading.
+        // The shared "body/black" material should show up here as a material present on all cubes.
+        findMaterialsUsedOnAllCubes(cubeNames);
+
+        // Intro fade-in: start faces hidden then animate to full visibility.
+		        (function fadeInIntro() {
+		            var introFrames = 60;
+		            for (var i = 0; i < cubeNames.length; i++) {
+	                var cube = scene.getMeshByName(cubeNames[i]);
+	                if (!cube) continue;
+	                cube.getChildMeshes().forEach(function (face) {
+	                    prepareForVisibilityFade(face);
+	                    if (face.material && typeof face.material.alpha === "number") {
+	                        face.material.alpha = 0;
+	                    } else {
+	                        face.visibility = 0;
+	                    }
+	                    animateFaceVisibility(face, 1.0, introFrames);
+	                });
+	            }
+		        })();
+
+            // NOTE: automatic black-material replacement is disabled until you confirm which material name
+            // from `[GLB] Materials used on ALL cubes:` is the one you want to replace.
+            // replaceBlackPBRMaterialOnly(cubeNames);
+
+        // Loop through each cube and attach action managers
+        for (let i = 0; i < cubeNames.length; i++) {
+            let cubeName = cubeNames[i];
+            let cube = scene.getMeshByName(cubeName);
+
+            if (cube) {
+                cube.getChildMeshes().forEach(function (face) {
+                    face.actionManager = new BABYLON.ActionManager(scene);
+
+                    face.actionManager.registerAction(new BABYLON.ExecuteCodeAction(BABYLON.ActionManager.OnPickTrigger, function (evt) {
+                        console.log(evt);
+
+                        // Only handle click if not dragging
+                        if (!onDragIndicator && activePointers.size<=1) {
+                            console.log("ON Drage INdicator True");
+                            let clickedFace = evt.source;
+                            let parentCube = clickedFace.parent;
+
+                            // Get mesh name and determine camera movement based on the second character
+                            var meshName = clickedFace.name.toString();
+                            var secondCharacter = meshName.charAt(1);
+                            var lastCharacter = meshName.charAt(meshName.length - 1);
+
+                            if (secondCharacter === "1") {
+                                console.log("Rotations Count (1): " + totalAlphaRotations);
+                                animateCamera(s1Alpha, s1Beta, 18);
+                            }
+                            else if (secondCharacter === "2") {
+                                console.log("Rotations Count (2): " + totalAlphaRotations);
+                                animateCamera(s2Alpha, s2Beta, 18);
+                            }
+                            else if (secondCharacter === "3") {
+                                console.log("Rotations Count (3): " + totalAlphaRotations);
+                                animateCamera(s3Alpha, s3Beta, 18);
+                            }
+                            else if (secondCharacter === "4") {
+                                console.log("Rotations Count (4): " + totalAlphaRotations);
+                                animateCamera(s4Alpha, s4Beta, 18);
+                            }
+                            else if(secondCharacter === "b"){
+                                console.log("Rotations Count (b): " + totalAlphaRotations);
+                                animateCamera(sbAlpha, sbBeta, 18); // Example: Set alpha to 1.5π (270 degrees)
+                            }
+                            else{
+                                console.log("Rotations Count (t): " + totalAlphaRotations);
+                                animateCamera(stAlpha, stBeta, 18); // Example: Set alpha to 1.5π (270 degrees)
+                            }
+
+                        if (parentCube === currentlyExpandedCube && clickedFace !== currentlyClickedFace) {
+                            // Clicking a different face of the same expanded cube
+                            animateFaceVisibility(currentlyClickedFace, 0.2); // Lower visibility of previously clicked face
+                            animateFaceVisibility(clickedFace, 1.0); // Set visibility of new clicked face to full
+                            currentlyClickedFace = clickedFace;
+                            return;
+                        }
+
+                        // Stop auto-rotation when interacting
+                        if (camera.autoRotationBehavior) {
+                            camera.autoRotationBehavior.idleRotationSpeed = 0;
+                        }
+
+                        // If the same cube is clicked, toggle it back to normal size
+                        if (parentCube === currentlyExpandedCube) {
+                            console.log("Toggling cube", parentCube.name);
+                            resetAllCubes(cubeNames, scene);
+                            currentlyExpandedCube = null;
+                            currentlyClickedFace = null;
+                        } else {
+                            // If a different cube is clicked, expand it and shrink all others
+
+                            if (parentCube.name.toString() === "top_block_5") { // Check if the clicked cube is top_block_5
+                                resetScene(); // Reset the scene
+                                console.log("Rotations Count (t): " + totalAlphaRotations);
+                                resetAllCubes(cubeNames, scene); // Reset all cubes
+                                return; // Exit the function
+                            }
+
+                            if (currentlyExpandedCube) {
+                                shrink(currentlyExpandedCube);
+                            }
+
+                            for (let j = 0; j < cubeNames.length; j++) {
+                                let cubeToHandle = scene.getMeshByName(cubeNames[j]);
+                                if (cubeToHandle) {
+                                    if (cubeToHandle === parentCube) {
+                                        grow(cubeToHandle);
+                                        previouslyClickedCube = currentlyExpandedCube;
+                                        currentlyExpandedCube = parentCube;
+                                        previouslyClickedFace = currentlyClickedFace;
+                                        currentlyClickedFace = clickedFace;
+                                    } else {
+                                        shrink(cubeToHandle);
+                                    }
+
+                                    // Set visibility for all faces of the cubes
+                                    cubeToHandle.getChildMeshes().forEach(function (face) {
+                                        if (face === clickedFace) {
+                                            animateFaceVisibility(face, 1.0); // Set visibility of the clicked face to full
+                                        } else {
+                                            animateFaceVisibility(face, 0.2); // Set visibility of all other faces to 0.2
+                                        }
+                                    });
+                                }
+                            }
+                        }
+                        } else {
+                            return;
+                        }
+                    }));
+                });
+            }
+        }
+    });
+
+    function grow(cube) {
+        if (cube) {
+            if (cube.scaling.x !== 1.2) {
+                console.log("Growing", cube.name, "from", cube.scaling.x, "to 1.2 with a bounce to 1.26");
+                createScaleAnimation(cube, cube.scaling.x, 1.2, 1.26); // Scale up to 1.2 with a bounce to 1.26
+            }
+        } else {
+            console.log("Cube not found");
+        }
+    }
+
+    function shrink(cube) {
+        if (cube) {
+            if (cube.scaling.x !== 0.8) {
+                console.log("Shrinking", cube.name, "from", cube.scaling.x, "to 0.9 with a bounce to 0.88");
+                createScaleAnimation(cube, cube.scaling.x, 0.9, 0.82); // Scale down to 0.9 with a bounce to 0.88
+            }
+        } else {
+            console.log("Cube not found");
+        }
+    }
+
+    function resetScale(cube) {
+        if (cube) {
+            if (cube.scaling.x !== 1.0) {
+                console.log("Resetting", cube.name, "to scale 1.0 with a bounce to 0.97");
+                createScaleAnimation(cube, cube.scaling.x, 1.0, 0.8); // Reset scale to 1.0 with a bounce to 0.97
+            }
+        } else {
+            console.log("Cube not found");
+        }
+    }
+
+    // Function to reset all cubes to their original size and visibility
+    function resetAllCubes(cubeNames, scene) {
+        for (let i = 0; i < cubeNames.length; i++) {
+            let cubeToHandle = scene.getMeshByName(cubeNames[i]);
+            if (cubeToHandle) {
+                resetScale(cubeToHandle);
+                // Reset visibility of all faces
+                cubeToHandle.getChildMeshes().forEach(function (face) {
+                    resetFaceVisibility(face);
+                });
+            }
+        }
+    }
+
+    function prepareForVisibilityFade(mesh) {
+        if (!mesh) return;
+
+        // For glTF/GLB imports, multiple meshes often share the same PBR material.
+        // If we animate `material.alpha` without cloning, every face using that material fades together.
+        // Cloning the material per face gives per-face opacity control.
+        if (!mesh.metadata) mesh.metadata = {};
+        if (!mesh.metadata.__fadeMaterialPrepared) {
+            var sourceMaterial = mesh.material || (mesh.parent && mesh.parent.material) || null;
+            if (sourceMaterial && typeof sourceMaterial.clone === "function") {
+                var cloned = sourceMaterial.clone((sourceMaterial.name || "mat") + "_fade_" + mesh.uniqueId);
+                mesh.material = cloned;
+            }
+            mesh.metadata.__fadeMaterialPrepared = true;
+        }
+
+        var material = mesh.material;
+        if (!material) return;
+
+        // Ensure PBR materials actually render as transparent when alpha < 1.
+        if ("transparencyMode" in material && BABYLON.PBRMaterial && typeof BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND !== "undefined") {
+            material.transparencyMode = BABYLON.PBRMaterial.PBRMATERIAL_ALPHABLEND;
+        }
+
+        // When Babylon/PBR treats radiance/specular "over alpha", transparent meshes can look milky/white.
+        if ("useRadianceOverAlpha" in material) material.useRadianceOverAlpha = false;
+        if ("useSpecularOverAlpha" in material) material.useSpecularOverAlpha = false;
+
+        // Depth pre-pass reduces some transparency sorting artifacts with semi-transparent faces.
+        if ("needDepthPrePass" in material) material.needDepthPrePass = true;
+    }
+
+    function animateFaceVisibility(face, targetVisibility, durationFrames) {
+        prepareForVisibilityFade(face);
+
+        var frames = typeof durationFrames === "number" ? durationFrames : 15;
+
+        // Prefer per-face material alpha (reliable for glTF/PBR). Fall back to mesh.visibility if needed.
+        var target = face;
+        var property = "visibility";
+        var fromValue = face.visibility;
+        if (face && face.material && typeof face.material.alpha === "number") {
+            target = face.material;
+            property = "alpha";
+            fromValue = face.material.alpha;
+        }
+
+        scene.stopAnimation(target);
+
+        var animation = new BABYLON.Animation("visibilityAnimation", property, 30, BABYLON.Animation.ANIMATIONTYPE_FLOAT, BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT);
+        animation.setKeys([
+            { frame: 0, value: fromValue },
+            { frame: frames, value: targetVisibility }
+        ]);
+
+        var easingFunction = new BABYLON.CubicEase();
+        easingFunction.setEasingMode(BABYLON.EasingFunction.EASINGMODE_EASEINOUT);
+        animation.setEasingFunction(easingFunction);
+
+        scene.beginDirectAnimation(target, [animation], 0, frames, false);
+    }
+
+    function resetFaceVisibility(face) {
+        animateFaceVisibility(face, 1.0);
+    }
+
+    function createScaleAnimation(mesh, fromScale, toScale, bounceScale) {
+        var animation = new BABYLON.Animation("scaleAnimation", "scaling", 30, BABYLON.Animation.ANIMATIONTYPE_VECTOR3, BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT);
+
+        var keys = [];
+        keys.push({ frame: 0, value: new BABYLON.Vector3(fromScale, fromScale, fromScale) });
+        keys.push({ frame: 12, value: new BABYLON.Vector3(bounceScale, bounceScale, bounceScale) }); // Bounce frame
+        keys.push({ frame: 17, value: new BABYLON.Vector3(toScale, toScale, toScale) });
+
+        animation.setKeys(keys);
+
+        // Create an easing function
+        var easingFunction = new BABYLON.QuadraticEase();
+        easingFunction.setEasingMode(BABYLON.EasingFunction.EASINGMODE_EASEINOUT);
+
+        // Add easing function to animation
+        animation.setEasingFunction(easingFunction);
+
+        if (!mesh.animations) mesh.animations = [];
+        mesh.animations.push(animation);
+        scene.beginAnimation(mesh, 0, 17, false);
+    }
+
+    return scene;
+};
+
+export default createScene
+  </script>
+
+  <script type="module">
+    const code = document.getElementById('scene-code').textContent;
+    const blob = new Blob([code], { type: 'text/javascript' });
+    const url = URL.createObjectURL(blob);
+
+    const BABYLON = window.BABYLON;
+    const canvas = document.getElementById('renderCanvas');
+
+    const mod = await import(url);
+
+    let engine = null;
+    if (typeof mod.createEngine === 'function') {
+      try { engine = await mod.createEngine(); } catch {}
+    }
+    if (!engine) {
+      engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
+    }
+    window.engine = engine;
+    window.canvas = canvas;
+
+    let createScene = mod.createScene || mod.default;
+    if (!createScene && mod.Playground?.CreateScene) createScene = (e,c)=>mod.Playground.CreateScene(e,c);
+    if (!createScene) throw new Error('No createScene() export found.');
+
+    const scene = await (createScene(engine, canvas) ?? createScene());
+    window.scene = scene;
+
+    engine.runRenderLoop(()=>scene.render());
+    addEventListener('resize', ()=>engine.resize());
+    addEventListener('unload', ()=> URL.revokeObjectURL(url));
+  </script>
+</body>
+</html>

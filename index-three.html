@@ -1,0 +1,808 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Cube Shots (Three.js)</title>
+    <style>
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: #050505;
+      }
+      #app {
+        position: fixed;
+        inset: 0;
+      }
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+    </style>
+
+    <!--
+      CDN scripts (non-module) so it works even when opened directly.
+      For best reliability, still prefer running with a local server:
+        python3 -m http.server 8000
+        open http://localhost:8000/index-three.html
+    -->
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <!-- Three.js core -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.min.js"></script>
+
+    <!-- Three.js examples (non-module) -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.1/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.1/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.1/examples/js/environments/RoomEnvironment.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.1/examples/js/lights/RectAreaLightUniformsLib.js"></script>
+
+    <!-- Postprocessing base -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.1/examples/js/postprocessing/Pass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.1/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.1/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.1/examples/js/postprocessing/ShaderPass.js"></script>
+
+    <!-- Shaders needed by passes -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.1/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.1/examples/js/shaders/LuminosityHighPassShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.1/examples/js/shaders/FXAAShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.1/examples/js/shaders/RGBShiftShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.1/examples/js/shaders/VignetteShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.1/examples/js/shaders/FilmShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.1/examples/js/shaders/BokehShader.js"></script>
+
+    <!-- Postprocessing passes -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.1/examples/js/postprocessing/SSAOPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.1/examples/js/postprocessing/BokehPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.1/examples/js/postprocessing/FilmPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.1/examples/js/postprocessing/UnrealBloomPass.js"></script>
+
+    <script>
+      (function () {
+        const THREE = window.THREE;
+
+      const GLB_URL =
+        "https://raw.githubusercontent.com/rameshjhtpsus/wow/main/Rubix_cube_prototype_pastel.glb";
+
+      const cubeNames = [
+        "btm_block_1",
+        "btm_block_2",
+        "btm_block_3",
+        "btm_block_4",
+        "btm_block_5",
+        "btm_block_6",
+        "btm_block_7",
+        "btm_block_8",
+        "btm_block_9",
+        "mid_block_1",
+        "mid_block_2",
+        "mid_block_3",
+        "mid_block_4",
+        "mid_block_5",
+        "mid_block_6",
+        "mid_block_7",
+        "mid_block_8",
+        "mid_block_9",
+        "top_block_1",
+        "top_block_2",
+        "top_block_3",
+        "top_block_4",
+        "top_block_5",
+        "top_block_6",
+        "top_block_7",
+        "top_block_8",
+        "top_block_9"
+      ];
+      const cubeNameSet = new Set(cubeNames);
+
+      // Babylon alpha/beta values ported directly:
+      const s1Alpha = Math.PI / -2.7;
+      const s1Beta = 1.5628;
+      const s2Alpha = Math.PI / -1.1;
+      const s2Beta = 1.5096;
+      const s3Alpha = (2 * Math.PI) / 3.2;
+      const s3Beta = 1.5352;
+      const s4Alpha = Math.PI / 7;
+      const s4Beta = 1.5638;
+      const stAlpha = 1.5 * Math.PI + 0.3;
+      const stBeta = 0.3;
+      const sbAlpha = 1.5 * Math.PI - 0.2;
+      const sbBeta = Math.PI - 0.5;
+
+      const timerDurationMs = 30000;
+      let timer = null;
+      let timerActive = false;
+
+      const qs = new URLSearchParams(location.search);
+      const QUALITY = Math.max(0.5, Math.min(2, Number(qs.get("q") || 2)));
+      const DOF_ENABLED = qs.get("dof") === "1";
+      const CINEMATIC = qs.get("cinematic") !== "0";
+      const BLOOM = Math.max(0, Math.min(1.5, Number(qs.get("bloom") || 0.32)));
+      const GRAIN = Math.max(0, Math.min(1, Number(qs.get("grain") || 0.12)));
+      const VIGNETTE = Math.max(0, Math.min(2, Number(qs.get("vignette") || 1.15)));
+      const CHROMA = Math.max(0, Math.min(0.01, Number(qs.get("chroma") || 0.00045)));
+
+      const app = document.getElementById("app");
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color("#050505");
+
+      const camera = new THREE.PerspectiveCamera(10, 1, 0.1, 200);
+      camera.position.set(0, 0, 25);
+
+      const renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        powerPreference: "high-performance",
+        alpha: false
+      });
+      renderer.setClearColor(0x050505, 1);
+      renderer.setSize(1, 1, false);
+      renderer.setPixelRatio(Math.min((window.devicePixelRatio || 1) * QUALITY, 2.5));
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = CINEMATIC ? 1.15 : 1.05;
+      renderer.useLegacyLights = false;
+      app.appendChild(renderer.domElement);
+
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.08;
+      controls.enablePan = false;
+      controls.enableZoom = false;
+      controls.autoRotate = false;
+      controls.autoRotateSpeed = 0.6;
+      controls.minDistance = 20;
+      controls.maxDistance = 20;
+      controls.minPolarAngle = 0.5;
+      controls.maxPolarAngle = 2.64;
+      controls.target.set(0, 0, 0);
+
+      // Portfolio-style lighting (from LOGO_LIGHTING_SETUP.md, adapted for Three.js/PBR).
+      const ambient = new THREE.AmbientLight(0xffffff, 0.4);
+      scene.add(ambient);
+
+      // Cinema4D-style "softboxes" (RectAreaLight) for glossy highlights.
+      THREE.RectAreaLightUniformsLib.init();
+      const softboxWarm = new THREE.RectAreaLight(new THREE.Color("#ff6400"), 8.0, 10, 10);
+      softboxWarm.position.set(5, 4, 0);
+      softboxWarm.lookAt(0, 0, 0);
+      scene.add(softboxWarm);
+
+      const softboxCool = new THREE.RectAreaLight(new THREE.Color("#95A3B6"), 3.5, 7, 7);
+      softboxCool.position.set(-4, 3, -2);
+      softboxCool.lookAt(0, 0, 0);
+      scene.add(softboxCool);
+
+      const keyLight = new THREE.DirectionalLight(new THREE.Color("#ff6400"), 2.4);
+      keyLight.position.set(3, 4, 2);
+      keyLight.castShadow = true;
+      keyLight.shadow.mapSize.set(4096, 4096);
+      keyLight.shadow.bias = -0.0002;
+      keyLight.shadow.normalBias = 0.02;
+      keyLight.shadow.radius = 2.5;
+      scene.add(keyLight);
+
+      const fillLight = new THREE.SpotLight(new THREE.Color("#ffffff"), 1.0, 0, 0.45, 0.4, 1.0);
+      fillLight.position.set(-3, 3, 2);
+      fillLight.castShadow = false;
+      scene.add(fillLight);
+      scene.add(fillLight.target);
+
+      // Environment/reflections (procedural; no external HDR required).
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      scene.environment = pmrem.fromScene(new THREE.RoomEnvironment(), 0.04).texture;
+
+      // Postprocessing chain.
+      const renderTarget = new THREE.WebGLRenderTarget(1, 1, {
+        depthBuffer: true,
+        stencilBuffer: false
+      });
+      if (renderer.capabilities.isWebGL2) renderTarget.samples = CINEMATIC ? 8 : 4;
+
+      const composer = new THREE.EffectComposer(renderer, renderTarget);
+      const renderPass = new THREE.RenderPass(scene, camera);
+      composer.addPass(renderPass);
+
+      // Ambient occlusion adds "Cinema4D render" depth.
+      const ssaoPass = new THREE.SSAOPass(scene, camera, 1, 1);
+      ssaoPass.kernelRadius = 14;
+      ssaoPass.minDistance = 0.005;
+      ssaoPass.maxDistance = 0.18;
+      composer.addPass(ssaoPass);
+
+      // Optional depth of field for recording shots (enable with ?dof=1).
+      const bokehPass = new THREE.BokehPass(scene, camera, {
+        focus: 25,
+        aperture: 0.00018,
+        maxblur: 0.008,
+        width: 1,
+        height: 1
+      });
+      if (DOF_ENABLED) composer.addPass(bokehPass);
+
+      // Bloom for subtle highlight rolloff and glow.
+      const bloomPass = new THREE.UnrealBloomPass(new THREE.Vector2(1, 1), BLOOM, 0.75, 0.92);
+      composer.addPass(bloomPass);
+
+      // Subtle lens effects.
+      const vignettePass = new THREE.ShaderPass(THREE.VignetteShader);
+      vignettePass.uniforms["offset"].value = 1.0;
+      vignettePass.uniforms["darkness"].value = VIGNETTE;
+      composer.addPass(vignettePass);
+
+      const rgbShiftPass = new THREE.ShaderPass(THREE.RGBShiftShader);
+      rgbShiftPass.uniforms["amount"].value = CHROMA;
+      rgbShiftPass.uniforms["angle"].value = 0.0;
+      composer.addPass(rgbShiftPass);
+
+      // Film grain (scanlines disabled).
+      const filmPass = new THREE.FilmPass(GRAIN, 0.0, 0, false);
+      composer.addPass(filmPass);
+
+      // Simple sharpening (inlined) to recover crispness after bloom/film grain.
+      const SharpenShader = {
+        uniforms: {
+          tDiffuse: { value: null },
+          resolution: { value: new THREE.Vector2(1, 1) },
+          strength: { value: 0.22 }
+        },
+        vertexShader: [
+          "varying vec2 vUv;",
+          "void main() {",
+          "  vUv = uv;",
+          "  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);",
+          "}"
+        ].join("\\n"),
+        fragmentShader: [
+          "uniform sampler2D tDiffuse;",
+          "uniform vec2 resolution;",
+          "uniform float strength;",
+          "varying vec2 vUv;",
+          "void main() {",
+          "  vec2 texel = 1.0 / resolution;",
+          "  vec3 c = texture2D(tDiffuse, vUv).rgb;",
+          "  vec3 n = texture2D(tDiffuse, vUv + vec2(0.0, texel.y)).rgb;",
+          "  vec3 s = texture2D(tDiffuse, vUv - vec2(0.0, texel.y)).rgb;",
+          "  vec3 e = texture2D(tDiffuse, vUv + vec2(texel.x, 0.0)).rgb;",
+          "  vec3 w = texture2D(tDiffuse, vUv - vec2(texel.x, 0.0)).rgb;",
+          "  vec3 edge = (n + s + e + w) * 0.25;",
+          "  vec3 outC = mix(c, c + (c - edge) * 2.0, strength);",
+          "  gl_FragColor = vec4(outC, 1.0);",
+          "}"
+        ].join("\\n")
+      };
+      const sharpenPass = new THREE.ShaderPass(SharpenShader);
+      composer.addPass(sharpenPass);
+
+      const fxaaPass = new THREE.ShaderPass(THREE.FXAAShader);
+      composer.addPass(fxaaPass);
+
+      function resize() {
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+        renderer.setSize(w, h, false);
+        composer.setSize(w, h);
+
+        const pixelRatio = renderer.getPixelRatio();
+        fxaaPass.material.uniforms["resolution"].value.set(1 / (w * pixelRatio), 1 / (h * pixelRatio));
+        bloomPass.setSize(w, h);
+        ssaoPass.setSize(w, h);
+        if (DOF_ENABLED) bokehPass.setSize(w, h);
+        sharpenPass.uniforms.resolution.value.set(w * pixelRatio, h * pixelRatio);
+
+        // Keep AO scale stable with resolution.
+        ssaoPass.kernelRadius = CINEMATIC ? 16 : 12;
+      }
+      addEventListener("resize", resize);
+      resize();
+
+      // Ground shadow catcher (contact-shadow style).
+      const shadowPlane = new THREE.Mesh(
+        new THREE.PlaneGeometry(200, 200),
+        new THREE.ShadowMaterial({ opacity: 0.4 })
+      );
+      shadowPlane.rotation.x = -Math.PI / 2;
+      shadowPlane.position.y = -0.85;
+      shadowPlane.receiveShadow = true;
+      scene.add(shadowPlane);
+
+      const loader = new GLTFLoader();
+
+      let gltfRoot = null;
+      let currentlyExpandedCube = null;
+      let currentlyClickedFace = null;
+      let previouslyClickedFace = null;
+
+      const raycaster = new THREE.Raycaster();
+      const pointer = new THREE.Vector2();
+
+      let pointerDown = null;
+      let dragDetected = false;
+      const DRAG_THRESHOLD_PX = 6;
+
+      function startTimer() {
+        if (timerActive) return;
+        timerActive = true;
+        timer = setTimeout(() => {
+          resetScene();
+          resetTimer();
+        }, timerDurationMs);
+      }
+      function resetTimer() {
+        if (!timerActive) return;
+        clearTimeout(timer);
+        timerActive = false;
+      }
+
+      function setControlsAngles(alpha, beta, radius) {
+        // Port Babylon ArcRotate (alpha,beta,radius) to Three.js spherical coordinates.
+        // Babylon:
+        //   x = r * cos(alpha) * sin(beta)
+        //   z = r * sin(alpha) * sin(beta)
+        // Three (Spherical):
+        //   x = r * sin(phi) * sin(theta)
+        //   z = r * sin(phi) * cos(theta)
+        // Mapping that matches Babylon numeric alpha direction:
+        //   theta = PI/2 - alpha
+        const theta = Math.PI / 2 - alpha;
+        const spherical = new THREE.Spherical(radius, beta, theta);
+        const offset = new THREE.Vector3().setFromSpherical(spherical);
+
+        controls.minDistance = radius;
+        controls.maxDistance = radius;
+        camera.position.copy(controls.target).add(offset);
+        camera.lookAt(controls.target);
+        controls.update();
+      }
+
+      function getCurrentOrbit() {
+        const offset = new THREE.Vector3().subVectors(camera.position, controls.target);
+        const spherical = new THREE.Spherical().setFromVector3(offset);
+        const alpha = Math.PI / 2 - spherical.theta;
+        return { alpha, beta: spherical.phi, radius: spherical.radius };
+      }
+
+      function animateCamera(alphaTarget, betaTarget, radiusTarget, durationMs = 900) {
+        const start = getCurrentOrbit();
+        const startAlpha = start.alpha;
+        const startBeta = start.beta;
+        const startRadius = start.radius;
+        const startTime = performance.now();
+
+        controls.enabled = false;
+
+        function shortestAngleDelta(from, to) {
+          let delta = ((to - from + Math.PI) % (2 * Math.PI)) - Math.PI;
+          if (delta < -Math.PI) delta += 2 * Math.PI;
+          return delta;
+        }
+
+        const deltaAlpha = shortestAngleDelta(startAlpha, alphaTarget);
+        const deltaBeta = betaTarget - startBeta;
+        const deltaRadius = radiusTarget - startRadius;
+
+        function easeInOutCubic(t) {
+          return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        }
+
+        function tick() {
+          const now = performance.now();
+          const t = Math.min(1, (now - startTime) / durationMs);
+          const e = easeInOutCubic(t);
+
+          setControlsAngles(startAlpha + deltaAlpha * e, startBeta + deltaBeta * e, startRadius + deltaRadius * e);
+
+          if (t < 1) {
+            requestAnimationFrame(tick);
+          } else {
+            controls.enabled = true;
+          }
+        }
+
+        requestAnimationFrame(tick);
+      }
+
+      let commonCubeMaterialUUIDs = new Set();
+
+      function detectCommonCubeMaterials() {
+        if (!gltfRoot) return [];
+
+        const cubes = cubeNames.map((n) => getCubeObjectByName(n)).filter(Boolean);
+        if (!cubes.length) return [];
+
+        const collect = (root) => {
+          const ids = new Set();
+          root.traverse((o) => {
+            if (!o.isMesh) return;
+            const m = o.material;
+            if (Array.isArray(m)) m.forEach((mm) => mm && ids.add(mm.uuid));
+            else if (m) ids.add(m.uuid);
+          });
+          return ids;
+        };
+
+        const intersection = collect(cubes[0]);
+        for (let i = 1; i < cubes.length; i++) {
+          const ids = collect(cubes[i]);
+          for (const id of intersection) {
+            if (!ids.has(id)) intersection.delete(id);
+          }
+        }
+
+        commonCubeMaterialUUIDs = intersection;
+        const materials = [];
+        gltfRoot.traverse((o) => {
+          if (!o.isMesh || !o.material) return;
+          const mats = Array.isArray(o.material) ? o.material : [o.material];
+          mats.forEach((m) => {
+            if (!m) return;
+            if (commonCubeMaterialUUIDs.has(m.uuid) && !materials.includes(m)) materials.push(m);
+          });
+        });
+
+        materials.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+        console.log(
+          "[GLB/Three] Materials used on ALL cubes:",
+          materials.map((m) => `${m.name || "(unnamed)"} :: ${m.type} (uuid=${m.uuid})`)
+        );
+        window.__commonCubeMaterials = materials;
+        window.__commonCubeMaterialNames = materials.map((m) => m.name);
+
+        return materials;
+      }
+
+      function isCommonCubeMaterial(material) {
+        if (!material) return false;
+        if (Array.isArray(material)) return material.some((m) => m && commonCubeMaterialUUIDs.has(m.uuid));
+        return commonCubeMaterialUUIDs.has(material.uuid);
+      }
+
+      function getCubeObjectByName(name) {
+        return gltfRoot ? gltfRoot.getObjectByName(name) : null;
+      }
+
+      function getCubeRootForMesh(mesh) {
+        let current = mesh;
+        while (current) {
+          if (cubeNameSet.has(current.name)) return current;
+          current = current.parent;
+        }
+        return null;
+      }
+
+      function getFaceMeshesForCube(cubeObj) {
+        if (!cubeObj) return [];
+        const faces = [];
+        cubeObj.traverse((child) => {
+          if (!child.isMesh) return;
+          // Exclude the shared "body" material meshes (usually black) so only face tiles fade.
+          if (isCommonCubeMaterial(child.material)) return;
+          faces.push(child);
+        });
+        return faces;
+      }
+
+      function prepareMeshForOpacity(mesh) {
+        if (!mesh || !mesh.material) return;
+        if (mesh.userData.__fadePrepared) return;
+
+        // Clone material so per-face opacity doesn't affect any other mesh.
+        mesh.material = mesh.material.clone();
+        mesh.material.transparent = true;
+        mesh.material.opacity = 1.0;
+        // Helps with z-fighting artifacts when semi-transparent.
+        mesh.material.depthWrite = false;
+        mesh.userData.__fadePrepared = true;
+      }
+
+      function animateOpacity(mesh, targetOpacity, durationMs = 250) {
+        if (!mesh) return;
+        prepareMeshForOpacity(mesh);
+        if (!mesh.material) return;
+
+        const start = mesh.material.opacity;
+        const startTime = performance.now();
+
+        function easeInOutCubic(t) {
+          return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        }
+
+        function tick() {
+          const t = Math.min(1, (performance.now() - startTime) / durationMs);
+          const e = easeInOutCubic(t);
+          mesh.material.opacity = start + (targetOpacity - start) * e;
+          if (t < 1) requestAnimationFrame(tick);
+        }
+
+        requestAnimationFrame(tick);
+      }
+
+      function resetAllCubes() {
+        cubeNames.forEach((name) => {
+          const cube = getCubeObjectByName(name);
+          if (!cube) return;
+          animateScale(cube, 1.0, 0.8);
+          getFaceMeshesForCube(cube).forEach((face) => animateOpacity(face, 1.0));
+        });
+      }
+
+      function animateScale(obj, toScale, bounceScale, durationMs = 260) {
+        if (!obj) return;
+        const from = obj.scale.x;
+        const startTime = performance.now();
+
+        function easeInOutCubic(t) {
+          return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        }
+
+        function tick() {
+          const t = Math.min(1, (performance.now() - startTime) / durationMs);
+          // Two-stage keyframe: from -> bounce -> toScale.
+          const midT = 0.55;
+          let s = toScale;
+          if (t < midT) {
+            const e = easeInOutCubic(t / midT);
+            s = from + (bounceScale - from) * e;
+          } else {
+            const e = easeInOutCubic((t - midT) / (1 - midT));
+            s = bounceScale + (toScale - bounceScale) * e;
+          }
+          obj.scale.setScalar(s);
+          if (t < 1) requestAnimationFrame(tick);
+        }
+
+        requestAnimationFrame(tick);
+      }
+
+      function resetScene() {
+        animateCamera(5.3, 1.2, 18);
+        controls.autoRotateSpeed = 0.35;
+        resetAllCubes();
+        currentlyExpandedCube = null;
+        currentlyClickedFace = null;
+      }
+
+      function onInteraction() {
+        controls.autoRotate = false;
+        resetTimer();
+        startTimer();
+      }
+
+      function faceToCameraPose(faceName) {
+        const secondCharacter = (faceName || "").charAt(1);
+        if (secondCharacter === "1") return { a: s1Alpha, b: s1Beta };
+        if (secondCharacter === "2") return { a: s2Alpha, b: s2Beta };
+        if (secondCharacter === "3") return { a: s3Alpha, b: s3Beta };
+        if (secondCharacter === "4") return { a: s4Alpha, b: s4Beta };
+        if (secondCharacter === "b") return { a: sbAlpha, b: sbBeta };
+        return { a: stAlpha, b: stBeta };
+      }
+
+      function handleFaceClick(clickedFace) {
+        if (!clickedFace) return;
+        onInteraction();
+
+        const parentCube = getCubeRootForMesh(clickedFace);
+        if (!parentCube) return;
+
+        const pose = faceToCameraPose(clickedFace.name);
+        animateCamera(pose.a, pose.b, 18);
+
+        if (parentCube.name === "top_block_5") {
+          resetScene();
+          return;
+        }
+
+        if (parentCube === currentlyExpandedCube && clickedFace !== currentlyClickedFace) {
+          if (currentlyClickedFace) animateOpacity(currentlyClickedFace, 0.2);
+          animateOpacity(clickedFace, 1.0);
+          previouslyClickedFace = currentlyClickedFace;
+          currentlyClickedFace = clickedFace;
+          return;
+        }
+
+        if (parentCube === currentlyExpandedCube) {
+          resetAllCubes();
+          currentlyExpandedCube = null;
+          currentlyClickedFace = null;
+          return;
+        }
+
+        // Expand clicked cube, shrink others, fade faces.
+        cubeNames.forEach((name) => {
+          const cube = getCubeObjectByName(name);
+          if (!cube) return;
+
+          if (cube === parentCube) {
+            animateScale(cube, 1.2, 1.26);
+            currentlyExpandedCube = cube;
+            previouslyClickedFace = currentlyClickedFace;
+            currentlyClickedFace = clickedFace;
+          } else {
+            animateScale(cube, 0.9, 0.82);
+          }
+
+          getFaceMeshesForCube(cube).forEach((face) => {
+            animateOpacity(face, face === clickedFace ? 1.0 : 0.2);
+          });
+        });
+      }
+
+      function getAllFaceMeshes() {
+        const faces = [];
+        cubeNames.forEach((cubeName) => {
+          const cube = getCubeObjectByName(cubeName);
+          if (!cube) return;
+          getFaceMeshesForCube(cube).forEach((m) => faces.push(m));
+        });
+        return faces;
+      }
+
+      function introFadeIn() {
+        const faces = getAllFaceMeshes();
+        faces.forEach((face) => {
+          prepareMeshForOpacity(face);
+          face.material.opacity = 0;
+        });
+        faces.forEach((face) => animateOpacity(face, 1.0, 900));
+      }
+
+      function animateCenterCubeIn() {
+        const center = gltfRoot ? gltfRoot.getObjectByName("Center") : null;
+        if (!center) return;
+        const originalPosition = new THREE.Vector3(0.055, 3.046, 0.05);
+        const originalRotation = new THREE.Euler(
+          THREE.MathUtils.degToRad(88.27),
+          THREE.MathUtils.degToRad(576.34),
+          THREE.MathUtils.degToRad(125.93)
+        );
+        center.position.copy(originalPosition).add(new THREE.Vector3(150, 0, 0));
+        center.rotation.copy(originalRotation);
+
+        const startX = center.position.x;
+        const endX = originalPosition.x;
+        const startTime = performance.now();
+        const durationMs = 1400;
+
+        function easeOutBack(t) {
+          const c1 = 1.70158;
+          const c3 = c1 + 1;
+          return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+        }
+
+        function tick() {
+          const t = Math.min(1, (performance.now() - startTime) / durationMs);
+          const e = easeOutBack(t);
+          center.position.x = startX + (endX - startX) * e;
+          center.rotation.y = originalRotation.y + THREE.MathUtils.degToRad(720) * Math.min(1, t);
+          if (t < 1) requestAnimationFrame(tick);
+        }
+        requestAnimationFrame(tick);
+      }
+
+      function fitGroundAndShadow(cameraTarget) {
+        if (!gltfRoot) return;
+        const box = new THREE.Box3().setFromObject(gltfRoot);
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+
+        controls.target.copy(cameraTarget || center);
+        keyLight.target.position.copy(controls.target);
+        fillLight.target.position.copy(controls.target);
+        softboxWarm.lookAt(controls.target);
+        softboxCool.lookAt(controls.target);
+
+        shadowPlane.position.y = box.min.y - 0.02;
+        shadowPlane.scale.setScalar(Math.max(size.x, size.z) * 2);
+
+        // Tighten key shadow camera for better quality.
+        const d = Math.max(size.x, size.y, size.z) * 1.2;
+        keyLight.shadow.camera.left = -d;
+        keyLight.shadow.camera.right = d;
+        keyLight.shadow.camera.top = d;
+        keyLight.shadow.camera.bottom = -d;
+        keyLight.shadow.camera.near = 0.1;
+        keyLight.shadow.camera.far = 100;
+        keyLight.shadow.camera.updateProjectionMatrix();
+      }
+
+      loader.load(
+        GLB_URL,
+        (gltf) => {
+          gltfRoot = gltf.scene;
+          scene.add(gltfRoot);
+
+          // Ensure high-quality material defaults.
+          gltfRoot.traverse((obj) => {
+            if (!obj.isMesh) return;
+            obj.castShadow = true;
+            obj.receiveShadow = true;
+            if (obj.material) {
+              obj.material.needsUpdate = true;
+            }
+          });
+
+          fitGroundAndShadow(new THREE.Vector3(0, 0, 0));
+          detectCommonCubeMaterials();
+          introFadeIn();
+
+          // Default starting pose similar to your Babylon scene.
+          setControlsAngles(6.3, 1.56, 20);
+          controls.autoRotate = true;
+          controls.autoRotateSpeed = 0.6;
+          animateCenterCubeIn();
+        },
+        undefined,
+        (err) => {
+          console.error("Failed to load GLB:", err);
+        }
+      );
+
+      renderer.domElement.addEventListener("pointerdown", (e) => {
+        pointerDown = { x: e.clientX, y: e.clientY, time: performance.now() };
+        dragDetected = false;
+      });
+      renderer.domElement.addEventListener("pointermove", (e) => {
+        if (!pointerDown) return;
+        const dx = e.clientX - pointerDown.x;
+        const dy = e.clientY - pointerDown.y;
+        if (Math.hypot(dx, dy) > DRAG_THRESHOLD_PX) dragDetected = true;
+      });
+      renderer.domElement.addEventListener("pointerup", (e) => {
+        if (!pointerDown) return;
+        const wasDrag = dragDetected;
+        pointerDown = null;
+        dragDetected = false;
+        if (wasDrag) return;
+
+        const rect = renderer.domElement.getBoundingClientRect();
+        pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        pointer.y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
+
+        raycaster.setFromCamera(pointer, camera);
+        const hits = raycaster.intersectObjects(gltfRoot ? gltfRoot.children : [], true);
+        if (!hits.length) return;
+
+        // Prefer the closest FACE mesh (ignore the shared body material if present).
+        const hit =
+          hits.find((h) => h.object && h.object.isMesh && !isCommonCubeMaterial(h.object.material)) ||
+          hits.find((h) => h.object && h.object.isMesh) ||
+          hits[0];
+        if (!hit || !hit.object) return;
+
+        handleFaceClick(hit.object);
+      });
+
+      // Keep timer interactions consistent with your Babylon logic.
+      controls.addEventListener("start", onInteraction);
+
+      const clock = new THREE.Clock();
+      function render() {
+        const dt = clock.getDelta();
+        controls.update();
+
+        if (DOF_ENABLED) {
+          // Keep focus distance tracking camera->target so DOF stays locked to the cube.
+          const dist = camera.position.distanceTo(controls.target);
+          if (bokehPass.materialBokeh?.uniforms?.focus) bokehPass.materialBokeh.uniforms.focus.value = dist;
+        }
+
+        composer.render();
+        requestAnimationFrame(render);
+      }
+      requestAnimationFrame(render);
+      })();
+    </script>
+  </body>
+</html>
